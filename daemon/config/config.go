@@ -127,13 +127,20 @@ type NetworkConfig struct {
 	NetworkControlPlaneMTU int `json:"network-control-plane-mtu,omitempty"`
 }
 
-// CommonTLSOptions defines TLS configuration for the daemon server.
-// It includes json tags to deserialize configuration from a file
+// CommonTLSOptions and CommonSSHOptions defines connection configurations
+// for the daemon server. It includes json tags to deserialize configuration from a file
 // using the same names that the flags in the command line use.
 type CommonTLSOptions struct {
 	CAFile   string `json:"tlscacert,omitempty"`
 	CertFile string `json:"tlscert,omitempty"`
 	KeyFile  string `json:"tlskey,omitempty"`
+}
+
+type CommonSSHOptions struct {
+	AuthorizedKeysFile    string `json:"ssh-authorized-keys,omitempty"`
+	TrustedUserCAKeysFile string `json:"ssh-user-ca-list,omitempty"`
+	HostCertificateFile   string `json:"ssh-cert,omitempty"`
+	HostKeyFile           string `json:"ssh-key,omitempty"`
 }
 
 // DNSConfig defines the DNS configurations.
@@ -223,6 +230,7 @@ type CommonConfig struct {
 	// Embedded structs that allow config
 	// deserialization without the full struct.
 	CommonTLSOptions
+	CommonSSHOptions
 
 	// SwarmDefaultAdvertiseAddr is the default host/IP or network interface
 	// to use if a wildcard address is specified in the ListenAddr value

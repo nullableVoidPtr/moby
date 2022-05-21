@@ -547,7 +547,9 @@ func validateAddr(addr string) (string, error) {
 	if addr == "" {
 		return addr, errors.New("invalid empty address")
 	}
-	newaddr, err := opts.ParseTCPAddr(addr, defaultAddr)
+
+	// TODO(nullableVoidPtr) Assumption that clusters always use tcp?
+	newaddr, err := opts.ParseNetAddr("tcp", addr, defaultAddr)
 	if err != nil {
 		// TODO(thaJeztah) why are we ignoring the error here? Is this to allow "non-tcp" addresses?
 		return addr, nil

@@ -12,6 +12,7 @@ import (
 	"github.com/docker/docker/api/server/middleware"
 	"github.com/docker/docker/api/server/router"
 	"github.com/docker/docker/api/server/router/debug"
+	"github.com/docker/docker/daemon/listeners/ssh"
 	"github.com/docker/docker/dockerversion"
 	"github.com/gorilla/mux"
 	"github.com/sirupsen/logrus"
@@ -27,6 +28,7 @@ type Config struct {
 	Version     string
 	SocketGroup string
 	TLSConfig   *tls.Config
+	SSHConfig   *ssh.Config
 }
 
 // Server contains instance details for the server

@@ -6,6 +6,7 @@ import (
 
 	cliconfig "github.com/docker/docker/cli/config"
 	"github.com/docker/docker/daemon/config"
+	"github.com/docker/docker/daemon/listeners/ssh"
 	"github.com/docker/docker/opts"
 	"github.com/docker/go-connections/tlsconfig"
 	"github.com/spf13/pflag"
@@ -41,6 +42,7 @@ type daemonOptions struct {
 	TLS          bool
 	TLSVerify    bool
 	TLSOptions   *tlsconfig.Options
+	SSHOptions   *ssh.Config
 	Validate     bool
 }
 
@@ -72,6 +74,14 @@ func (o *daemonOptions) installFlags(flags *pflag.FlagSet) {
 	flags.StringVar(&tlsOptions.CAFile, "tlscacert", filepath.Join(dockerCertPath, DefaultCaFile), "Trust certs signed only by this CA")
 	flags.StringVar(&tlsOptions.CertFile, "tlscert", filepath.Join(dockerCertPath, DefaultCertFile), "Path to TLS certificate file")
 	flags.StringVar(&tlsOptions.KeyFile, "tlskey", filepath.Join(dockerCertPath, DefaultKeyFile), "Path to TLS key file")
+
+	o.SSHOptions = &ssh.Config{}
+	sshOptions := o.SSHOptions
+	flags.StringVar(&sshOptions.AuthorizedKeysFile, "ssh-authorized-keys", "", "Path to authorized SSH user key list")
+	flags.StringVar(&sshOptions.TrustedUserCAKeysFile, "ssh-user-ca-list", "", "Path to SSH user key CA list")
+	flags.StringVar(&sshOptions.HostCertificateFile, "ssh-cert", "", "Path to SSH host key certificate file")
+	//TODO(nullableVoidPtr) use libtrust here?
+	flags.StringVar(&sshOptions.HostKeyFile, "ssh-key", "", "Path to SSH host key file")
 
 	hostOpt := opts.NewNamedListOptsRef("hosts", &o.Hosts, opts.ValidateHost)
 	flags.VarP(hostOpt, "host", "H", "Daemon socket(s) to connect to")

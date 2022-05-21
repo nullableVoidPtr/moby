@@ -180,7 +180,7 @@ func TestParseTCP(t *testing.T) {
 	}
 	for invalidAddr, expectedError := range invalids {
 		t.Run(invalidAddr, func(t *testing.T) {
-			addr, err := ParseTCPAddr(invalidAddr, defaultHTTPHost)
+			addr, err := ParseNetAddr("tcp", invalidAddr, defaultHTTPHost)
 			if err == nil || err.Error() != expectedError {
 				t.Errorf(`expected error "%s", got "%v"`, expectedError, err)
 			}
@@ -191,7 +191,7 @@ func TestParseTCP(t *testing.T) {
 	}
 	for invalidAddr, expectedError := range invalidDefaults {
 		t.Run("default "+invalidAddr, func(t *testing.T) {
-			_, err := ParseTCPAddr("tcp://0.0.0.0:2375", invalidAddr)
+			_, err := ParseNetAddr("tcp", "tcp://0.0.0.0:2375", invalidAddr)
 			if err == nil || err.Error() != expectedError {
 				t.Errorf(`expected error "%s", got "%v"`, expectedError, err)
 			}
@@ -199,7 +199,7 @@ func TestParseTCP(t *testing.T) {
 	}
 	for validAddr, expectedAddr := range valids {
 		t.Run(validAddr, func(t *testing.T) {
-			addr, err := ParseTCPAddr(validAddr, defaultHTTPHost)
+			addr, err := ParseNetAddr("tcp", validAddr, defaultHTTPHost)
 			if err != nil {
 				t.Errorf(`unexpected error: "%v"`, err)
 			}

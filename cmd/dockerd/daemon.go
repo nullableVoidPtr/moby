@@ -38,6 +38,7 @@ import (
 	"github.com/docker/docker/daemon/cluster"
 	"github.com/docker/docker/daemon/config"
 	"github.com/docker/docker/daemon/listeners"
+	"github.com/docker/docker/daemon/listeners/ssh"
 	"github.com/docker/docker/dockerversion"
 	"github.com/docker/docker/libcontainerd/supervisor"
 	dopts "github.com/docker/docker/opts"
@@ -414,6 +415,17 @@ func loadDaemonCliConfig(opts *daemonOptions) (*config.Config, error) {
 		conf.CommonTLSOptions = config.CommonTLSOptions{}
 	}
 
+	if opts.SSHOptions != nil {
+		conf.CommonSSHOptions = config.CommonSSHOptions{
+			AuthorizedKeysFile:    opts.SSHOptions.AuthorizedKeysFile,
+			TrustedUserCAKeysFile: opts.SSHOptions.TrustedUserCAKeysFile,
+			HostCertificateFile:   opts.SSHOptions.HostCertificateFile,
+			HostKeyFile:           opts.SSHOptions.HostKeyFile,
+		}
+	} else {
+		conf.CommonSSHOptions = config.CommonSSHOptions{}
+	}
+
 	if conf.TrustKeyPath == "" {
 		daemonConfDir, err := getDaemonConfDir(conf.Root)
 		if err != nil {
@@ -632,6 +644,27 @@ func newAPIServerConfig(config *config.Config) (*apiserver.Config, error) {
 		serverConfig.TLSConfig = tlsConfig
 	}
 
+	if config.TLS != nil && *config.TLS {
+		sshConfig := &ssh.Config{
+			AuthorizedKeysFile:    config.CommonSSHOptions.AuthorizedKeysFile,
+			TrustedUserCAKeysFile: config.CommonSSHOptions.TrustedUserCAKeysFile,
+			HostCertificateFile:   config.CommonSSHOptions.HostCertificateFile,
+			HostKeyFile:           config.CommonSSHOptions.HostKeyFile,
+		}
+
+		if config.HostKeyFile == "" {
+			// Server has no private key
+			return nil, errors.New(`need to specify "--host-key"`)
+		}
+
+		if config.AuthorizedKeysFile == "" || config.TrustedUserCAKeysFile == "" {
+			// Server has no means of authorizing users
+			return nil, errors.New(`need to specify either "--ssh-authorized-keys" or "--ssh-user-ca-list"`)
+		}
+
+		serverConfig.SSHConfig = sshConfig
+	}
+
 	return serverConfig, nil
 }
 
@@ -714,12 +747,20 @@ func loadListeners(cli *DaemonCli, serverConfig *apiserver.Config) ([]string, er
 				}
 			}
 		}
-		ls, err := listeners.Init(proto, addr, serverConfig.SocketGroup, serverConfig.TLSConfig)
+		var (
+			ls  []net.Listener
+			err error
+		)
+		if proto == "ssh" {
+			ls, err = ssh.Init(addr, serverConfig.SSHConfig)
+		} else {
+			ls, err = listeners.Init(proto, addr, serverConfig.SocketGroup, serverConfig.TLSConfig)
+		}
 		if err != nil {
 			return nil, err
 		}
 		// If we're binding to a TCP port, make sure that a container doesn't try to use it.
-		if proto == "tcp" {
+		if proto == "tcp" || proto == "ssh" {
 			if err := allocateDaemonPort(addr); err != nil {
 				return nil, err
 			}

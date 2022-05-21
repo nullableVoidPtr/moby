@@ -18,6 +18,7 @@ const (
 	DefaultHTTPPort = 2375 // Default HTTP Port
 	// DefaultTLSHTTPPort Default HTTP Port used when TLS enabled
 	DefaultTLSHTTPPort = 2376 // Default TLS encrypted HTTP Port
+	DefaultSSHPort     = 2377 // Default SSH port
 	// DefaultUnixSocket Path for the unix socket.
 	// Docker daemon by default always listens on the default unix socket
 	DefaultUnixSocket = "/var/run/docker.sock"
@@ -25,6 +26,8 @@ const (
 	DefaultTCPHost = "tcp://" + DefaultHTTPHost + ":2375"
 	// DefaultTLSHost constant defines the default host string used by docker for TLS sockets
 	DefaultTLSHost = "tcp://" + DefaultHTTPHost + ":2376"
+	// DefaultTLSHost constant defines the default host string used by docker for TLS sockets
+	DefaultSSHHost = "ssh://" + DefaultHTTPHost + ":2377"
 	// DefaultNamedPipe defines the default named pipe used by docker on Windows
 	DefaultNamedPipe = `//./pipe/docker_engine`
 	// HostGatewayName is the string value that can be passed
@@ -85,7 +88,9 @@ func parseDaemonHost(addr string) (string, error) {
 
 	switch addrParts[0] {
 	case "tcp":
-		return ParseTCPAddr(addr, DefaultTCPHost)
+		return ParseNetAddr("tcp", addr, DefaultTCPHost)
+	case "ssh":
+		return ParseNetAddr("ssh", addr, DefaultSSHHost)
 	case "unix":
 		return parseSimpleProtoAddr("unix", addrParts[1], DefaultUnixSocket)
 	case "npipe":
@@ -112,18 +117,20 @@ func parseSimpleProtoAddr(proto, addr, defaultAddr string) (string, error) {
 	return proto + "://" + addr, nil
 }
 
-// ParseTCPAddr parses and validates that the specified address is a valid TCP
-// address. It returns a formatted TCP address, either using the address parsed
-// from tryAddr, or the contents of defaultAddr if tryAddr is a blank string.
+// ParseNetAddr parses and validates that the specified address is a valid TCP
+// address. It returns a formatted TCP address with proto as its scheme, either
+// using the address parsed from tryAddr, or the contents of defaultAddr if
+// tryAddr is a blank string.
+// proto must not contain the trailing `://`
 // tryAddr is expected to have already been Trim()'d
 // defaultAddr must be in the full `tcp://host:port` form
-func ParseTCPAddr(tryAddr string, defaultAddr string) (string, error) {
-	def, err := parseTCPAddr(defaultAddr, true)
+func ParseNetAddr(proto, tryAddr, defaultAddr string) (string, error) {
+	def, err := parseNetAddr(proto, defaultAddr, true)
 	if err != nil {
 		return "", errors.Wrapf(err, "invalid default address (%s)", defaultAddr)
 	}
 
-	addr, err := parseTCPAddr(tryAddr, false)
+	addr, err := parseNetAddr(proto, tryAddr, false)
 	if err != nil {
 		return "", errors.Wrapf(err, "invalid bind address (%s)", tryAddr)
 	}
@@ -137,21 +144,21 @@ func ParseTCPAddr(tryAddr string, defaultAddr string) (string, error) {
 		port = def.Port()
 	}
 
-	return "tcp://" + net.JoinHostPort(host, port), nil
+	return proto + "://" + net.JoinHostPort(host, port), nil
 }
 
-// parseTCPAddr parses the given addr and validates if it is in the expected
+// parseNetAddr parses the given addr and validates if it is in the expected
 // format. If strict is enabled, the address must contain a scheme (tcp://),
 // a host (or IP-address) and a port number.
-func parseTCPAddr(address string, strict bool) (*url.URL, error) {
+func parseNetAddr(proto, address string, strict bool) (*url.URL, error) {
 	if !strict && !strings.Contains(address, "://") {
-		address = "tcp://" + address
+		address = proto + "://" + address
 	}
 	parsedURL, err := url.Parse(address)
 	if err != nil {
 		return nil, err
 	}
-	if parsedURL.Scheme != "tcp" {
+	if parsedURL.Scheme != proto {
 		return nil, errors.Errorf("unsupported proto '%s'", parsedURL.Scheme)
 	}
 	if parsedURL.Path != "" {

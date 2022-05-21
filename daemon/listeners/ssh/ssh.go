@@ -10,6 +10,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
+	version "github.com/docker/docker/dockerversion"
 )
 
 //TODO(nullableVoidPtr) move everything to go-connections
@@ -183,6 +184,11 @@ func listenSSH(addr string, sshConfig *Config) (net.Listener, error) {
 
 	config := &ssh.ServerConfig{
 		PublicKeyCallback: authenticator,
+		ServerVersion:     fmt.Sprintf("SSH-2.0-dockerd-%v-%v", version.Version, version.GitCommit),
+		BannerCallback:    func(_ ssh.ConnMetadata) string {
+			return "This is NOT an SSH terminal, this is a Docker REST API endpoint protected by SSH.\n" +
+			       "Please use the Docker CLI instead.\n"
+		},
 	}
 
 	if sshConfig.HostCertificateFile != "" {

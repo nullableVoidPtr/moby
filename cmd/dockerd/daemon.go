@@ -415,15 +415,11 @@ func loadDaemonCliConfig(opts *daemonOptions) (*config.Config, error) {
 		conf.CommonTLSOptions = config.CommonTLSOptions{}
 	}
 
-	if opts.SSHOptions != nil {
-		conf.CommonSSHOptions = config.CommonSSHOptions{
-			AuthorizedKeysFile:    opts.SSHOptions.AuthorizedKeysFile,
-			TrustedUserCAKeysFile: opts.SSHOptions.TrustedUserCAKeysFile,
-			HostCertificateFile:   opts.SSHOptions.HostCertificateFile,
-			HostKeyFile:           opts.SSHOptions.HostKeyFile,
-		}
-	} else {
-		conf.CommonSSHOptions = config.CommonSSHOptions{}
+	conf.CommonSSHOptions = config.CommonSSHOptions{
+		AuthorizedKeysFile:    opts.SSHOptions.AuthorizedKeysFile,
+		TrustedUserCAKeysFile: opts.SSHOptions.TrustedUserCAKeysFile,
+		HostCertificateFile:   opts.SSHOptions.HostCertificateFile,
+		HostKeyFile:           opts.SSHOptions.HostKeyFile,
 	}
 
 	if conf.TrustKeyPath == "" {
@@ -644,26 +640,21 @@ func newAPIServerConfig(config *config.Config) (*apiserver.Config, error) {
 		serverConfig.TLSConfig = tlsConfig
 	}
 
-	if config.TLS != nil && *config.TLS {
-		sshConfig := &ssh.Config{
-			AuthorizedKeysFile:    config.CommonSSHOptions.AuthorizedKeysFile,
-			TrustedUserCAKeysFile: config.CommonSSHOptions.TrustedUserCAKeysFile,
-			HostCertificateFile:   config.CommonSSHOptions.HostCertificateFile,
-			HostKeyFile:           config.CommonSSHOptions.HostKeyFile,
-		}
+	sshConfig := &ssh.Config{
+		AuthorizedKeysFile:    config.CommonSSHOptions.AuthorizedKeysFile,
+		TrustedUserCAKeysFile: config.CommonSSHOptions.TrustedUserCAKeysFile,
+		HostCertificateFile:   config.CommonSSHOptions.HostCertificateFile,
+		HostKeyFile:           config.CommonSSHOptions.HostKeyFile,
+	}
 
-		if config.HostKeyFile == "" {
-			// Server has no private key
-			return nil, errors.New(`need to specify "--host-key"`)
-		}
-
-		if config.AuthorizedKeysFile == "" || config.TrustedUserCAKeysFile == "" {
+	if config.HostKeyFile != "" {
+		if config.AuthorizedKeysFile == "" && config.TrustedUserCAKeysFile == "" {
 			// Server has no means of authorizing users
 			return nil, errors.New(`need to specify either "--ssh-authorized-keys" or "--ssh-user-ca-list"`)
 		}
-
-		serverConfig.SSHConfig = sshConfig
 	}
+
+	serverConfig.SSHConfig = sshConfig
 
 	return serverConfig, nil
 }

@@ -1,6 +1,7 @@
 package ssh // import "github.com/docker/docker/daemon/listeners/ssh"
 
 import (
+	"encoding/binary"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -26,8 +27,7 @@ type Listener struct {
 }
 
 func (sl Listener) demux(conn net.Conn) error {
-	defer conn.Close()
-
+	logrus.Infof("Accept SSH connection from: %v", conn)
 	_, newChannelRequests, globalRequests, err := ssh.NewServerConn(conn, sl.config)
 	if err != nil {
 		return err
@@ -36,14 +36,15 @@ func (sl Listener) demux(conn net.Conn) error {
 	// Ignore global requests (usually port forwards)
 	go ssh.DiscardRequests(globalRequests)
 
-	go func(conn net.Conn, out chan<- ChannelConnection, in <-chan ssh.NewChannel) {
-		for channel := range in {
-			if channel.ChannelType() != "session" {
-				channel.Reject(ssh.UnknownChannelType, "unknown channel type")
+	go func() {
+		defer conn.Close()
+		for chanReq := range newChannelRequests {
+			if chanReq.ChannelType() != "session" {
+				chanReq.Reject(ssh.UnknownChannelType, "unknown channel type")
 				continue
 			}
 
-			channel, requests, err := channel.Accept()
+			channel, requests, err := chanReq.Accept()
 			if err != nil {
 				logrus.Fatalf("Could not accept channel: %v", err)
 			}
@@ -52,14 +53,27 @@ func (sl Listener) demux(conn net.Conn) error {
 			// A better call and response protocol using
 			// "subsystem" type requests, but using the duplex
 			// channel as a transport for HTTP would suffice
-			go ssh.DiscardRequests(requests)
+			go func() {
+				for req := range requests {
+					// Compatibility with legacy Docker CLI ConnHelper
+					if req.Type == "exec" {
+						cmdLen := binary.BigEndian.Uint32(req.Payload[:4])
+						if uint32(binary.Size(req.Payload[4:])) != cmdLen || string(req.Payload[4:]) != "docker system dial-stdio" {
+							req.Reply(false, nil)
+						}
 
-			out <- ChannelConnection{
+						req.Reply(true, nil)
+					}
+					req.Reply(false, nil)
+				}
+			}()
+
+			sl.acceptedChannelConns <- ChannelConnection{
 				c:    channel,
 				conn: conn,
 			}
 		}
-	}(conn, sl.acceptedChannelConns, newChannelRequests)
+	}()
 
 	return nil
 }
@@ -72,8 +86,9 @@ func (sl Listener) Serve() error {
 		}
 
 		go sl.demux(tcpConn)
-		return nil
 	}
+
+	return nil
 }
 
 func (sl Listener) Accept() (net.Conn, error) {
@@ -140,8 +155,8 @@ func listenSSH(addr string, sshConfig *Config) (net.Listener, error) {
 		}
 	}
 
-	userCAKeys := map[string]bool{}
 	if sshConfig.TrustedUserCAKeysFile != "" {
+		userCAKeys := map[string]bool{}
 		trustedUserCAKeysBytes, err := ioutil.ReadFile(sshConfig.TrustedUserCAKeysFile)
 		if err != nil {
 			logrus.Fatalf("Failed to load AuthorizedKeys: %v", err)

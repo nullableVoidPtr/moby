@@ -65,12 +65,8 @@ func (sl Listener) demux(conn net.Conn) error {
 }
 
 func (sl Listener) Serve() error {
-	var (
-		tcpConn net.Conn
-		err     error
-	)
 	for {
-		tcpConn, err = sl.tl.Accept()
+		tcpConn, err := sl.tl.Accept()
 		if err != nil {
 			return err
 		}
@@ -102,12 +98,12 @@ func listenSSH(addr string, sshConfig *Config) (net.Listener, error) {
 		return nil, errors.New("Missing SSHConfig")
 	}
 
-	privateBytes, err := ioutil.ReadFile(sshConfig.HostKeyFile)
+	hostKeyBytes, err := ioutil.ReadFile(sshConfig.HostKeyFile)
 	if err != nil {
 		logrus.Fatalf("Failed to load private key: %v", err)
 	}
 
-	private, err := ssh.ParsePrivateKey(privateBytes)
+	hostKey, err := ssh.ParsePrivateKey(hostKeyBytes)
 	if err != nil {
 		logrus.Fatalf("Failed to parse private key: %v", err)
 	}
@@ -116,8 +112,12 @@ func listenSSH(addr string, sshConfig *Config) (net.Listener, error) {
 		logrus.Fatal("Neither AuthorizedKeys or TrustedUserCAKeys were specified")
 	}
 
-	authorizedKeysMap := map[string]bool{}
+	authenticator := func(conn ssh.ConnMetadata, userKey ssh.PublicKey) (*ssh.Permissions, error) {
+		return nil, fmt.Errorf("Unauthorized key %q", conn.User())
+	}
+
 	if sshConfig.AuthorizedKeysFile != "" {
+		authorizedKeys := map[string]bool{}
 		authorizedKeysBytes, err := ioutil.ReadFile(sshConfig.AuthorizedKeysFile)
 		if err != nil {
 			logrus.Fatalf("Failed to load AuthorizedKeys: %v", err)
@@ -129,25 +129,74 @@ func listenSSH(addr string, sshConfig *Config) (net.Listener, error) {
 				logrus.Fatal(err)
 			}
 
-			authorizedKeysMap[string(pubKey.Marshal())] = true
+			authorizedKeys[string(pubKey.Marshal())] = true
 			authorizedKeysBytes = rest
+		}
+		authenticator = func(conn ssh.ConnMetadata, userKey ssh.PublicKey) (*ssh.Permissions, error) {
+			if authorizedKeys[string(userKey.Marshal())] {
+				return &ssh.Permissions{}, nil
+			}
+			return nil, fmt.Errorf("Unauthorized key %q", conn.User())
 		}
 	}
 
-	config := &ssh.ServerConfig{
-		PublicKeyCallback: func(c ssh.ConnMetadata, pubKey ssh.PublicKey) (*ssh.Permissions, error) {
-			if authorizedKeysMap[string(pubKey.Marshal())] {
-				return &ssh.Permissions{
-					Extensions: map[string]string{
-						"pubkey-fp": ssh.FingerprintSHA256(pubKey),
-					},
-				}, nil
+	userCAKeys := map[string]bool{}
+	if sshConfig.TrustedUserCAKeysFile != "" {
+		trustedUserCAKeysBytes, err := ioutil.ReadFile(sshConfig.TrustedUserCAKeysFile)
+		if err != nil {
+			logrus.Fatalf("Failed to load AuthorizedKeys: %v", err)
+		}
+
+		for len(trustedUserCAKeysBytes) > 0 {
+			userCAKey, _, _, rest, err := ssh.ParseAuthorizedKey(trustedUserCAKeysBytes)
+			if err != nil {
+				logrus.Fatal(err)
 			}
-			return nil, fmt.Errorf("Unauthorized key %q", c.User())
-		},
+
+			userCAKeys[string(userCAKey.Marshal())] = true
+			trustedUserCAKeysBytes = rest
+		}
+
+		certChecker := ssh.CertChecker{
+			IsUserAuthority: func(auth ssh.PublicKey) bool {
+				return userCAKeys[string(auth.Marshal())]
+			},
+			UserKeyFallback: authenticator,
+		}
+		authenticator = certChecker.Authenticate
 	}
 
-	config.AddHostKey(private)
+	config := &ssh.ServerConfig{
+		PublicKeyCallback: authenticator,
+	}
+
+	if sshConfig.HostCertificateFile != "" {
+		hostCertificateBytes, err := ioutil.ReadFile(sshConfig.HostCertificateFile)
+		if err != nil {
+			logrus.Fatalf("Failed to load host key certificate: %v", err)
+		}
+
+		for len(hostCertificateBytes) > 0 {
+			pubKey, _, _, rest, err := ssh.ParseAuthorizedKey(hostCertificateBytes)
+			if err != nil {
+				logrus.Fatal(err)
+			}
+
+			certificate := pubKey.(*ssh.Certificate)
+
+			signedHostKey, err := ssh.NewCertSigner(certificate, hostKey)
+			if err != nil {
+				logrus.Warn(err)
+				hostCertificateBytes = rest
+				continue
+			}
+
+			config.AddHostKey(signedHostKey)
+			hostCertificateBytes = rest
+		}
+	} else {
+		config.AddHostKey(hostKey)
+	}
 
 	if err != nil {
 		return nil, err
@@ -158,7 +207,7 @@ func listenSSH(addr string, sshConfig *Config) (net.Listener, error) {
 		return nil, err
 	}
 
-	var listener = Listener{
+	listener := Listener{
 		tl:                   tl,
 		config:               config,
 		acceptedChannelConns: make(chan ChannelConnection),

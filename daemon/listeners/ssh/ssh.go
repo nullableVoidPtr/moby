@@ -6,14 +6,14 @@ import (
 	"io/ioutil"
 	"net"
 
+	version "github.com/docker/docker/dockerversion"
 	"github.com/docker/go-connections/sockets"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
-	version "github.com/docker/docker/dockerversion"
 )
 
-//TODO(nullableVoidPtr) move everything to go-connections
+//TODO(nullableVoidPtr) move anything common to go-connections
 type Config struct {
 	AuthorizedKeysFile    string
 	TrustedUserCAKeysFile string
@@ -70,8 +70,9 @@ func (sl Listener) demux(conn net.Conn) error {
 			}()
 
 			sl.acceptedChannelConns <- ChannelConnection{
-				c:    channel,
-				conn: conn,
+				c:          channel,
+				localAddr:  conn.LocalAddr(),
+				remoteAddr: conn.RemoteAddr(),
 			}
 		}
 	}()
@@ -185,9 +186,9 @@ func listenSSH(addr string, sshConfig *Config) (net.Listener, error) {
 	config := &ssh.ServerConfig{
 		PublicKeyCallback: authenticator,
 		ServerVersion:     fmt.Sprintf("SSH-2.0-dockerd-%v-%v", version.Version, version.GitCommit),
-		BannerCallback:    func(_ ssh.ConnMetadata) string {
+		BannerCallback: func(_ ssh.ConnMetadata) string {
 			return "This is NOT an SSH terminal, this is a Docker REST API endpoint protected by SSH.\n" +
-			       "Please use the Docker CLI instead.\n"
+				"Please use the Docker CLI instead.\n"
 		},
 	}
 
